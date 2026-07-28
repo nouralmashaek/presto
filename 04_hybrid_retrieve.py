@@ -1,15 +1,3 @@
-"""
-Step 4 - Run after Steps 2 and 3 both have their outputs ready
-(finetuned-arabic-ecom-embed/ and bm25_index.pkl).
-
-Generates submission.csv by combining:
-  - Dense retrieval: cosine similarity from your fine-tuned embedding model
-  - Lexical retrieval: BM25 score
-via min-max normalized weighted fusion, then takes the top 10 per query.
-
-DENSE_WEIGHT / BM25_WEIGHT are starting guesses - tune them using
-05_local_eval.py before you burn a real leaderboard submission on them.
-"""
 import pickle
 
 import numpy as np
