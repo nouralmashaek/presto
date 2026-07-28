@@ -1,7 +1,3 @@
-"""
-Step 2 - Fine-tune prestoai/qwen3-embedding-0.6b-arabic-ecom on flat parquet data.
-"""
-import os
 import pandas as pd
 from torch.utils.data import DataLoader
 from sentence_transformers import SentenceTransformer, InputExample, losses
@@ -10,71 +6,81 @@ from normalize import load_synonyms, apply_normalization
 
 MODEL_NAME = "prestoai/qwen3-embedding-0.6b-arabic-ecom"
 OUTPUT_DIR = "finetuned-arabic-ecom-embed"
-BATCH_SIZE = 32  # Reduce to 16 or 8 if your Vast.ai GPU runs out of VRAM (OOM)
-EPOCHS = 1
+BATCH_SIZE = 8   # dropped from 64 - OOM'd on a 12GB RTX 4070 at the original size
+EPOCHS = 2
 
-def build_examples(synonyms: dict):
-    pair_examples = []
-    triplet_examples = []
-    
-    # 1. Load Positives (Pairs: Query + Positive)
-    if os.path.exists("data/train_positives.parquet"):
-        print("Loading train_positives.parquet...")
-        df_pos = pd.read_parquet("data/train_positives.parquet")
-        for row in df_pos.itertuples(index=False):
-            q = apply_normalization(str(row.user_query), synonyms)
-            pos = apply_normalization(str(row.positive_product_name), synonyms)
-            if q and pos:
-                pair_examples.append(InputExample(texts=[q, pos]))
-                
-    # 2. Load Pairs with Negatives (Triplets: Query + Positive + Hard Negative)
-    if os.path.exists("data/train_pairs_with_negatives.parquet"):
-        print("Loading train_pairs_with_negatives.parquet...")
-        df_neg = pd.read_parquet("data/train_pairs_with_negatives.parquet")
-        for row in df_neg.itertuples(index=False):
-            q = apply_normalization(str(row.user_query), synonyms)
-            pos = apply_normalization(str(row.positive_product_name), synonyms)
-            neg = apply_normalization(str(row.negative_product_name), synonyms)
-            if q and pos and neg:
-                triplet_examples.append(InputExample(texts=[q, pos, neg]))
-                
-    return pair_examples, triplet_examples
+
+def build_pair_examples(synonyms: dict) -> list:
+    """(query, positive_name) pairs from train_positives.parquet.
+    No negative_product_name here - MultipleNegativesRankingLoss uses the
+    other positives in the batch as in-batch negatives."""
+    examples = []
+    df = pd.read_parquet(
+        "data/train_positives.parquet",
+        columns=["user_query", "positive_product_name"],
+    )
+    for row in df.itertuples(index=False):
+        if not isinstance(row.positive_product_name, str) or not row.positive_product_name:
+            continue
+        q = apply_normalization(row.user_query, synonyms)
+        p = apply_normalization(row.positive_product_name, synonyms)
+        examples.append(InputExample(texts=[q, p]))
+    return examples
+
+
+def build_triplet_examples(synonyms: dict) -> list:
+    """(query, positive_name, hard_negative_name) triplets from
+    train_pairs_with_negatives.parquet - the highest-value training
+    signal since the negative is a real near-miss, not a random other
+    product."""
+    examples = []
+    df = pd.read_parquet("data/train_pairs_with_negatives.parquet")
+    for row in df.itertuples(index=False):
+        if not isinstance(row.negative_product_name, str) or not row.negative_product_name:
+            continue
+        q = apply_normalization(row.user_query, synonyms)
+        pos = apply_normalization(row.positive_product_name, synonyms)
+        neg = apply_normalization(row.negative_product_name, synonyms)
+        examples.append(InputExample(texts=[q, pos, neg]))
+    return examples
+
 
 def main():
     synonyms = load_synonyms()
-    print(f"Loaded {len(synonyms)} synonym groups.")
+    print(f"Loaded {len(synonyms)} synonym groups")
 
-    print(f"Downloading/Loading base model: {MODEL_NAME}...")
     model = SentenceTransformer(MODEL_NAME)
 
-    pair_examples, triplet_examples = build_examples(synonyms)
-    print(f"Built {len(pair_examples)} pair examples (in-batch negatives).")
-    print(f"Built {len(triplet_examples)} triplet examples (hard negatives).")
+    pair_examples = build_pair_examples(synonyms)
+    triplet_examples = build_triplet_examples(synonyms)
+    print(f"Built {len(pair_examples)} pair examples (in-batch negatives)")
+    print(f"Built {len(triplet_examples)} triplet examples (hard negatives)")
 
-    train_objectives = []
-    
-    if triplet_examples:
-        triplet_loader = DataLoader(triplet_examples, shuffle=True, batch_size=BATCH_SIZE)
-        triplet_loss = losses.MultipleNegativesRankingLoss(model)
-        train_objectives.append((triplet_loader, triplet_loss))
-        
-    if pair_examples:
-        pair_loader = DataLoader(pair_examples, shuffle=True, batch_size=BATCH_SIZE)
-        pair_loss = losses.MultipleNegativesRankingLoss(model)
-        train_objectives.append((pair_loader, pair_loss))
+    pair_dataloader = DataLoader(pair_examples, shuffle=True, batch_size=BATCH_SIZE)
+    triplet_dataloader = DataLoader(triplet_examples, shuffle=True, batch_size=BATCH_SIZE)
 
-    total_steps = sum(len(loader) for loader, _ in train_objectives)
-    print(f"Starting training for {EPOCHS} epoch(s)... Total steps: {total_steps}")
+    # Same loss class works for both 2-text and 3-text InputExamples - it
+    # just treats any texts beyond the first two as extra hard negatives
+    # when present.
+    pair_loss = losses.MultipleNegativesRankingLoss(model)
+    triplet_loss = losses.MultipleNegativesRankingLoss(model)
+
+    total_steps = len(pair_dataloader) + len(triplet_dataloader)
 
     model.fit(
-        train_objectives=train_objectives,
+        train_objectives=[
+            (triplet_dataloader, triplet_loss),
+            (pair_dataloader, pair_loss),
+        ],
         epochs=EPOCHS,
         warmup_steps=int(0.1 * total_steps),
-        use_amp=True,  # Mixed precision (faster on RTX 3090/4090/A5000 GPUs)
+        use_amp=True,  # mixed precision - big throughput/cost win on rented GPUs
         output_path=OUTPUT_DIR,
-        show_progress_bar=True
+        checkpoint_path=f"{OUTPUT_DIR}/checkpoints",
+        checkpoint_save_steps=1000,
     )
-    print(f"Training complete! Model saved to {OUTPUT_DIR}")
+    print(f"Saved fine-tuned model to {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main()
