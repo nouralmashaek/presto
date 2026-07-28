@@ -1,11 +1,3 @@
-"""
-Step 3 - Cheap, fast, runs on CPU. No GPU or fine-tuning needed for this one.
-
-Builds a BM25 (pure keyword-match) index over the product catalog. Useful
-on its own as a baseline, and reused later for hybrid dense+lexical fusion.
-Exact brand-name matches are often where lexical search beats embeddings,
-so this pulls its weight even after the neural model is fine-tuned.
-"""
 import pickle
 
 import pandas as pd
