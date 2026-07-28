@@ -4,6 +4,3 @@ numpy
 torch
 sentence-transformers
 rank_bm25
-# optional but recommended: a more robust Arabic normalizer/morphology toolkit
-# than the hand-rolled regex in normalize.py, if you want to go further later
-# camel-tools
