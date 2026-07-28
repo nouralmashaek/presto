@@ -1,22 +1,3 @@
-"""
-Step 5 - Use this to sanity-check changes (normalization tweaks, fusion
-weights, training epochs) WITHOUT spending a real leaderboard submission.
-
-Implements the exact nDCG@10 formula from the competition brief:
-  DCG@10  = sum( (2^grade_i - 1) / log2(i+1) )   for i = 1..10
-  IDCG@10 = same sum for the ideal (best-first) ordering
-  nDCG@10 = DCG@10 / IDCG@10
-
-CAVEAT: the public training data only gives you binary-ish signal (one
-ground-truth positive product per query, plus mined hard negatives) - not
-the full graded 0-3 relevance scale the official test set uses. To build a
-local validation set, hold out a slice of train_positives.parquet /
-train_pairs_with_negatives.parquet yourself and treat the true positive as
-grade 3, hard negatives as grade 0 (per the "-1 treated as 0" scoring
-rule), and everything else as grade 0. This is an approximation of your
-real leaderboard score, not a guarantee - use it for A/B comparisons
-between your own approaches, not as an absolute number.
-"""
 import numpy as np
 
 
