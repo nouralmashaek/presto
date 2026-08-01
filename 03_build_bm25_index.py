@@ -13,8 +13,7 @@ def main():
     product_ids = []
     tokenized_corpus = []
     for row in catalog.itertuples():
-        text = f"{row.product_name_ar} {row.category_name_ar}"
-        text = apply_normalization(text, synonyms)
+        text = apply_normalization(row.product_name_ar, synonyms)
         product_ids.append(row.product_id)
         tokenized_corpus.append(text.split())
 
