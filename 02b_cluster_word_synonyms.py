@@ -1,27 +1,3 @@
-"""
-Step 2 (replaces manual review of synonym_candidates.json) - Run after
-01_build_synonyms.py.
-
-WHY THIS EXISTS: synonym_candidates.json groups full query phrasings by
-the single product they point to. That's the wrong unit for a synonym
-dictionary - generic words like "سماعات" (headphones) show up as a
-"variant" under many different, unrelated products, and treating full
-sentences as substitutable synonyms would let one product's name
-overwrite unrelated queries. Hand-reviewing 72k phrase groups also isn't
-feasible.
-
-What DOES generalize safely across products is brand/dialect SPELLING of
-the same word - e.g. ريلمي / ريالمي / ريلم / ريال مي / ريكلمي all just
-mean "Realme," regardless of which product the query is about. This
-script mines exactly that: it tokenizes every query + product name in
-the training data, counts word frequency, and clusters words that are
-near-identical by edit distance (blocked by first letter + similar
-length, so it stays fast even over a large vocabulary).
-
-Output: word_synonym_clusters.json - a much smaller, reviewable list of
-{canonical_word: [variant1, variant2, ...]} clusters, sorted by cluster
-size. Skim this (not synonym_candidates.json) to build synonyms.json.
-"""
 import json
 import re
 from collections import Counter
