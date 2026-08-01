@@ -2,14 +2,17 @@ import pickle
 
 import numpy as np
 import pandas as pd
+import torch
 from sentence_transformers import SentenceTransformer, util
 
 from normalize import load_synonyms, apply_normalization
 
 MODEL_DIR = "finetuned-arabic-ecom-embed"
-DENSE_WEIGHT = 0.6
-BM25_WEIGHT = 0.4
+DENSE_WEIGHT = 0.7
+BM25_WEIGHT = 0.3
 TOP_K = 10
+ENCODE_BATCH_SIZE = 128  # inference-only, no gradients/optimizer state, so this
+                         # can be much larger than the training batch sizes were
 
 
 def minmax(scores: np.ndarray) -> np.ndarray:
@@ -26,7 +29,7 @@ def main():
     catalog = pd.read_csv("data/product_catalog.csv")
     product_ids = catalog["product_id"].tolist()
     product_texts = [
-        apply_normalization(f"{row.product_name_ar} {row.category_name_ar}", synonyms)
+        apply_normalization(row.product_name_ar, synonyms)
         for row in catalog.itertuples()
     ]
 
@@ -40,17 +43,24 @@ def main():
         )
 
     model = SentenceTransformer(MODEL_DIR)
-    product_embeddings = model.encode(
-        product_texts, convert_to_tensor=True, show_progress_bar=True, batch_size=128
-    )
+    model.max_seq_length = 64  # match what the model was fine-tuned with
+
+    with torch.no_grad():
+        product_embeddings = model.encode(
+            product_texts,
+            convert_to_tensor=True,
+            show_progress_bar=True,
+            batch_size=ENCODE_BATCH_SIZE,
+        )
 
     test_queries = pd.read_csv("data/test_queries.csv")
     rows = []
 
-    for row in test_queries.itertuples():
+    for i, row in enumerate(test_queries.itertuples(), 1):
         q_norm = apply_normalization(row.query_text, synonyms)
 
-        q_emb = model.encode(q_norm, convert_to_tensor=True)
+        with torch.no_grad():
+            q_emb = model.encode(q_norm, convert_to_tensor=True)
         dense_scores = util.cos_sim(q_emb, product_embeddings)[0].cpu().numpy()
 
         bm25_scores = bm25.get_scores(q_norm.split())
@@ -60,6 +70,9 @@ def main():
         top_ids = [product_ids[i] for i in top_idx]
 
         rows.append({"query_id": row.query_id, "product_id": " ".join(top_ids)})
+
+        if i % 2000 == 0:
+            print(f"  {i}/{len(test_queries)} queries processed")
 
     submission = pd.DataFrame(rows)
     submission.to_csv("submission.csv", index=False)
