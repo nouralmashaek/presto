@@ -11,8 +11,7 @@ MODEL_DIR = "finetuned-arabic-ecom-embed"
 DENSE_WEIGHT = 0.7
 BM25_WEIGHT = 0.3
 TOP_K = 10
-ENCODE_BATCH_SIZE = 128  # inference-only, no gradients/optimizer state, so this
-                         # can be much larger than the training batch sizes were
+ENCODE_BATCH_SIZE = 128 
 
 
 def minmax(scores: np.ndarray) -> np.ndarray:
@@ -43,7 +42,7 @@ def main():
         )
 
     model = SentenceTransformer(MODEL_DIR)
-    model.max_seq_length = 64  # match what the model was fine-tuned with
+    model.max_seq_length = 64  
 
     with torch.no_grad():
         product_embeddings = model.encode(
