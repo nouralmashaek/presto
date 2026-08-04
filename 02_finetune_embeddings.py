@@ -13,7 +13,7 @@ TRIPLET_BATCH_SIZE = 8   # (query, positive, negative) - 3 texts per example,
                          # per-batch (16*2=32 vs 10*3=30). Dropped further from
                          # 48/32 - AdamW optimizer states + gradients + fp32
                          # master weights for a 0.6B param model already consume
-                         # a large fixed chunk of a 24GB card before any batch
+                         # a large fixed chunk of a 24GB card before any batch rtx 3090 gpu 
                          # activations are even allocated, so there was less
                          # headroom than the raw VRAM total suggested.
 EPOCHS = 2
@@ -58,36 +58,20 @@ def main():
     synonyms = load_synonyms()
     print(f"Loaded {len(synonyms)} synonym groups")
 
-    # 1. CRITICAL FIX: Load weights in 16-bit to cut static VRAM & AdamW overhead in half!
+    
     model = SentenceTransformer(
         MODEL_NAME,
         model_kwargs={"torch_dtype": torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16}
     )
 
-    # Queries/product names are almost always short (p99 is 6 words for
-    # queries, 13 words for product names), but a handful of outlier rows
-    # run to 100+ words. Since every sequence in a batch gets padded to
-    # the longest one in that batch, one such outlier landing in a batch
-    # spikes memory far past what a normal batch needs - that's what was
-    # causing the OOM partway through training, not a bad batch size.
-    # Capping this truncates rare outliers instead of blowing up memory.
+  
     model.max_seq_length = 64
 
-    # Gradient checkpointing trades ~20% slower training for a large cut in
-    # activation memory (it recomputes activations during the backward pass
-    # instead of keeping them all resident) - worth it given how much of the
-    # 24GB is already claimed by optimizer state before batches even start.
     try:
-        # 2. CRITICAL FIX: Disable use_cache before checkpointing so attention KV caches don't hoard VRAM!
+       
         model[0].auto_model.config.use_cache = False
         model[0].auto_model.gradient_checkpointing_enable()
-        # Companion call required for checkpointing to actually free
-        # activations on decoder-style models like this one - without it,
-        # checkpointing partially engages (you get further into training
-        # before OOM, since some savings apply) but earlier-step activations
-        # aren't fully released, so memory creeps up until it runs out. This
-        # matches the symptom exactly: crashing further along each time
-        # rather than immediately.
+        
         if hasattr(model[0].auto_model, "enable_input_require_grads"):
             model[0].auto_model.enable_input_require_grads()
         print("Gradient checkpointing & use_cache=False enabled successfully")
@@ -113,9 +97,7 @@ def main():
     pin_memory=True,
     )
 
-    # Same loss class works for both 2-text and 3-text InputExamples - it
-    # just treats any texts beyond the first two as extra hard negatives
-    # when present.
+  
     pair_loss = losses.MultipleNegativesRankingLoss(model)
     triplet_loss = losses.MultipleNegativesRankingLoss(model)
 
