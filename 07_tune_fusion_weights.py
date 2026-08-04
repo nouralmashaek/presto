@@ -1,18 +1,4 @@
-"""
-Step 7 - Run after 06_build_local_validation.py has produced
-local_validation.json, and after your fine-tuned model + bm25_index.pkl
-both exist.
 
-Sweeps DENSE_WEIGHT / BM25_WEIGHT combinations and scores each against
-your local validation set using the exact nDCG@10 formula from
-05_local_eval.py, so you can pick real weights before spending a
-leaderboard submission on a guess.
-
-EFFICIENCY NOTE: dense and BM25 scores per validation query are computed
-ONCE, then every weight combination in the grid is just a cheap re-fusion
-of already-computed scores - this is why the sweep is fast even though
-generating those scores (which needs the GPU) is the slow part.
-"""
 import json
 import pickle
 
@@ -24,7 +10,7 @@ from sentence_transformers import SentenceTransformer, util
 from normalize import load_synonyms, apply_normalization
 
 MODEL_DIR = "finetuned-arabic-ecom-embed"
-WEIGHT_GRID = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # tried as DENSE_WEIGHT, BM25_WEIGHT = 1-DENSE_WEIGHT
+WEIGHT_GRID = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  
 
 
 def minmax(scores: np.ndarray) -> np.ndarray:
@@ -65,21 +51,14 @@ def main():
     model = SentenceTransformer(MODEL_DIR)
     model.max_seq_length = 64
 
-    # Map each product_id to its normalized text, so we can credit a
-    # retrieved product as correct if it's a TEXT-DUPLICATE of the ground
-    # truth product (~40% of this catalog is exact duplicate names under
-    # different IDs) - without this, the fuzzy-linked validation set
-    # unfairly penalizes retrieving the "right" product under a different
-    # duplicate ID, which a human grader would treat as equally relevant.
+  
     id_to_text = dict(zip(product_ids, product_texts))
 
     with torch.no_grad():
         product_embeddings = model.encode(
             product_texts, convert_to_tensor=True, show_progress_bar=True, batch_size=128
         )
-
-    # Compute normalized dense + BM25 scores ONCE per validation query,
-    # plus its ground-truth grades, so every weight combo below is cheap.
+        
     per_query = []
     for i, row in enumerate(val_rows, 1):
         q_norm = apply_normalization(row["query"], synonyms)
