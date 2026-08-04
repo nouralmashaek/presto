@@ -7,15 +7,10 @@ from rapidfuzz.distance import Levenshtein
 
 from normalize import normalize_arabic
 
-MIN_WORD_FREQ = 5       # ignore rare words/typos-once, too noisy to cluster reliably
-MIN_WORD_LEN = 5         # short words (3-4 letters) are too ambiguous in Arabic -
-                         # edit distance 1 covers too much ground and merges unrelated words
+MIN_WORD_FREQ = 5       
+MIN_WORD_LEN = 5        
+                        
 
-# Only cluster pure Arabic-letter tokens. SKU/model codes (B12, 100W, C01...)
-# and Latin brand strings look like short alphanumeric strings that edit-distance
-# clustering will happily merge together (100 <-> 1001 <-> 100W ...), which is
-# pure noise, not a dialect spelling variant. Excluding them removed the vast
-# majority of the garbage clusters seen in testing.
 _ARABIC_ONLY = re.compile(r"^[\u0600-\u06FF]+$")
 
 
@@ -55,14 +50,9 @@ def cluster_words(freq: Counter) -> dict:
             continue
         clusters[word] = []
         assigned.add(word)
-        # distance 1 for short/medium words; only allow 2 for longer words,
-        # where a 2-char difference is proportionally still a small edit
+       
         max_dist = 1
-        # a real spelling variant/typo should be much rarer than the
-        # correct/canonical form it's a mistake of. Two genuinely
-        # different real words (e.g. الجيد "good" vs الحار "hot") tend to
-        # both be reasonably frequent, so capping how common a "variant"
-        # is allowed to be filters most of those false merges out.
+        
         variant_freq_cap = max(3, int(freq[word] * 0.2))
         for other in words_by_prefix.get(word[:2], []):
             if other in assigned or other == word:
@@ -74,9 +64,7 @@ def cluster_words(freq: Counter) -> dict:
             if Levenshtein.distance(word, other) <= max_dist:
                 clusters[word].append(other)
                 assigned.add(other)
-    # only keep clusters that actually merged something, and require the
-    # canonical form to be reasonably frequent (not a one-off typo that
-    # happened to sort high by luck)
+
     return {
         canon: sorted(variants)
         for canon, variants in clusters.items()
@@ -91,7 +79,7 @@ def main():
 
     print("Clustering near-identical spellings...")
     clusters = cluster_words(freq)
-    # sort biggest clusters first - those are the highest-value merges to review
+ 
     clusters = dict(sorted(clusters.items(), key=lambda kv: -len(kv[1])))
 
     with open("word_synonym_clusters.json", "w", encoding="utf-8") as f:
