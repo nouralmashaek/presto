@@ -20,8 +20,6 @@ def is_clean_query(q: str) -> bool:
         return False
     return True
 
-# Seed with what you already know about the domain - free accuracy, no
-# training required.
 SEED_SYNONYMS = {
     "شيبس": ["بطاطا شيبس", "ليز", "شيبس", "سناكس", "تسالي", "مقرمشات"],
 }
@@ -47,8 +45,7 @@ def mine_synonym_candidates(min_variants: int = 2) -> dict:
             if isinstance(name, str) and name and q_norm:
                 product_to_queries[name].add(q_norm)
 
-    # Keep only products where multiple distinct query phrasings were used -
-    # those phrasings are candidate synonyms of each other.
+
     return {
         name: sorted(qs)
         for name, qs in product_to_queries.items()
